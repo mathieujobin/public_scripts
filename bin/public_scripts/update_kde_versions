@@ -1,0 +1,59 @@
+#!/Users/mjobin/.rvm/rubies/ruby-1.9.3-p327/bin/ruby
+
+require 'open-uri'
+require 'nokogiri'
+require 'yaml'
+
+devel_version="4.9.95"
+stable_version="4.9.4"
+
+path = "/usr/local/Library/Formula"
+
+def fetch_file_list(v)
+  content = open("http://www.kde.org/info/#{v}.php").read
+  html_doc = Nokogiri::HTML(content)
+  file_urls = html_doc.xpath("//table/tr/td/a")
+  file_sha1 = html_doc.xpath("//table/tr/td/tt").map(&:text)
+  raise "shit" unless file_urls.size == file_sha1.size
+  list = {}
+  file_sha1.size.times do |i|
+    pkg_name_and_version = file_urls[i].text
+    url = file_urls[i].send(:attributes)['href'].text
+    package_name = pkg_name_and_version.gsub(/-#{v}$/, '')
+    list[package_name] = {:sha1 => file_sha1[i], :url => url, :name => package_name}
+  end
+  #{file_urls: file_urls, file_sha1: file_sha1, count: file_sha1.size, list: list}
+  list
+end
+
+devel_list = fetch_file_list(devel_version)
+stable_list = fetch_file_list(stable_version)
+
+
+stable_list.each do |name, details|
+  filename = "#{path}/#{details[:name]}.rb"
+  if devel_list[details[:name]]
+  devel_part = %Q{
+  devel do
+    url '#{devel_list[details[:name]][:url]}'
+    sha1 '#{devel_list[details[:name]][:sha1]}'
+  end
+}
+  else
+    devel_part = ''
+  end
+  file_content = %Q{require 'base_kde_formula'
+
+class #{details[:name].capitalize} < BaseKdeFormula
+  homepage 'http://www.kde.org/'
+  url '#{details[:url]}'
+  sha1 '#{details[:sha1]}'
+#{devel_part}
+  depends_on 'kdelibs'
+end
+}
+  #puts filename if File.exist?(filename)
+  #puts file_content
+  File.open(filename, 'w') { |f| f.write(file_content) }
+end
+
