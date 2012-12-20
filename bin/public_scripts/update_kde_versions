@@ -3,12 +3,49 @@
 require 'open-uri'
 require 'nokogiri'
 require 'yaml'
+require 'active_support/inflector'
 
 devel_version="4.9.95"
 stable_version="4.9.4"
 
 path = "/usr/local/Library/Formula"
 
+specifics = {
+  'kalzium' => {:url => 'http://edu.kde.org/kalzium/'},
+  'kamera' => {:url => 'http://www.thekompany.com/projects/gphoto/', :deps => ['gphoto2', 'qt'], :no_kdelibs => true},
+  'kate' => {:url => 'http://kate-editor.org', :deps => ['kde-runtime']},
+  'kde-baseapps' => {:deps => ['kde-runtime']},
+  'kstars' => {:url => 'http://edu.kde.org/kstars/', :deps => ['kde-runtime', 'eigen']},
+  'kde-runtime' => {:deps => ['kde-phonon', 'oxygen-icons'],
+    :extra_cmake_args => "phonon = Formula.factory 'kde-phonon'
+    \"-DPHONON_INCLUDE_DIR=\#{phonon.include} -DPHONON_LIBRARY=\#{phonon.lib}/libphonon.dylib\""
+  },
+  'kdelibs' => {:deps => [
+    'gettext'                  ,
+    'pcre'                     ,
+    'jpeg'                     ,
+    'giflib'                   ,
+    'soprano'                  ,
+    'shared-desktop-ontologies',
+    'shared-mime-info'         ,
+    'attica'                   ,
+    'strigi'                   ,
+    'xz'                       ,
+    'docbook'                  ,
+    'd-bus'                    ,
+    'qt'                       ,
+    'libdbusmenu-qt'           ,
+  ], :optional_deps => [
+    'aspell',
+    'enchant',
+  ], :no_kdelibs => true},
+  'kdepim' => {:deps => ['kdepimlibs'], :no_kdelibs => true},
+  'kdepimlibs' => {:deps => ['gpgme', 'akonadi', 'libical']},
+  'kgpg' => {:url => 'http://utils.kde.org/projects/kgpg/', :deps => ['kde-runtime']},
+  'kolourpaint' => {:url => 'http://www.kolourpaint.org', :deps => ['kde-runtime']},
+  'libkexiv2' => {:deps => ['exiv2']},
+  'oxygen-icons' => {:url => 'http://www.oxygen-icons.org', :no_kdelibs => true},
+}
 def fetch_file_list(v)
   content = open("http://www.kde.org/info/#{v}.php").read
   html_doc = Nokogiri::HTML(content)
@@ -32,24 +69,33 @@ stable_list = fetch_file_list(stable_version)
 
 stable_list.each do |name, details|
   filename = "#{path}/#{details[:name]}.rb"
+  extras = ''
   if devel_list[details[:name]]
-  devel_part = %Q{
+    extras = %Q{
   devel do
     url '#{devel_list[details[:name]][:url]}'
     sha1 '#{devel_list[details[:name]][:sha1]}'
   end
 }
-  else
-    devel_part = ''
+  end
+  specifics[name] ||= {}
+  specifics[name][:url] ||= 'http://www.kde.org/'
+  # kdelibs by default
+  extras += "\n  depends_on 'kdelibs'" unless specifics[name][:no_kdelibs]
+  # Other Dependencies
+  if specifics[name][:deps].respond_to?(:collect)
+    extras += specifics[name][:deps].collect{|x| "\n  depends_on '#{x}'" }.join('')
+  end
+  if specifics[name][:extra_cmake_args]
+    extras += "\n  def extra_cmake_args\n    #{specifics[name][:extra_cmake_args]}\n  end"
   end
   file_content = %Q{require 'base_kde_formula'
 
-class #{details[:name].capitalize} < BaseKdeFormula
-  homepage 'http://www.kde.org/'
+class #{details[:name].gsub(/[@-]/, '_').camelize} < BaseKdeFormula
+  homepage '#{specifics[name][:url]}'
   url '#{details[:url]}'
   sha1 '#{details[:sha1]}'
-#{devel_part}
-  depends_on 'kdelibs'
+#{extras}
 end
 }
   #puts filename if File.exist?(filename)
