@@ -1,0 +1,145 @@
+#!/usr/bin/env ruby
+
+require 'json'
+
+def main
+	if ARGV.size != 2
+		puts "Can only compare 2 files at this point. #{ARGV.size} files unsupported."
+		exit 1
+	else
+		config_diff = {}
+		file_contents = ARGV.map do |filename|
+			read_kernel_config_file(filename)
+		end
+
+		file_contents.first.each do |key,val_left|
+			val_right = KernelConfigValue.new(file_contents.last[key])
+			unless val_left == val_right # val_left.equivalent?(val_right)
+				if val_left.default?
+					config_diff[:missing_left] ||= []
+					config_diff[:missing_left] << key # file_contents.last[key]
+				elsif val_right.default?
+					config_diff[:missing_right] ||= []
+					config_diff[:missing_right] << key # val
+				else
+					puts "#{key}: #{val_left} != #{val_right}"
+				end
+			end
+		end
+
+		puts JSON.pretty_generate(config_diff) # .to_json
+	end
+end
+
+class KernelConfigValue
+	DEBUG=false
+	VALID_VALS=['', 'm', 'y', 'n'].freeze
+	attr_accessor :val
+
+	def initialize(val)
+		val = if val.is_a?(KernelConfigValue)
+			val.val
+		else
+			val.to_s.downcase
+		end
+		#raise ArgumentError.new("unknown value <#{val}>.") unless VALID_VALS.include?(val)
+		puts "init with >#{val}<".inspect if DEBUG
+		@val = val
+	end
+
+	def enabled?
+		val == 'y' || val == 'm'
+	end
+
+	def default?
+		val == ''
+	end
+
+	def equivalent?(other)
+		if DEBUG
+			puts ['aha', self, other].inspect
+			puts "called with #{self.inspect}, #{other.inspect}"
+			puts "respond_to"+other.respond_to?(:val).to_s
+			puts other.val
+		end
+		other = KernelConfigValue.new(val) unless other.respond_to?(:val)
+		[self.enabled?, other.enabled?] == [true,true] || self.val == other.val
+	end
+
+	def ==(other)
+		other = KernelConfigValue.new(val) unless other.respond_to?(:val)
+		self.val == other.val
+	end
+
+	def !=(other)
+		other = KernelConfigValue.new(val) unless other.respond_to?(:val)
+		self.val != other.val
+	end
+
+	def to_s
+		val.to_s
+	end
+
+	def inspect
+		"#<#{self.class}:#{self.val}>"
+	end
+end
+
+def read_kernel_config_file(filename)
+	hash_content = {}
+	content = File.read(filename)
+	content.split(/\n/).each do |line|
+		next if line.match(/^ *#/)
+		key,val = line.split(/=/)
+		if hash_content[key] && hash_content[key] != val
+			# safety check, should not happen.
+			puts "key already exist, file #{filename} might not be proper."
+			exit 2
+		else
+			hash_content[key] = KernelConfigValue.new(val)
+		end
+	end
+	hash_content
+end
+
+def assert(cond)
+	raise cond.inspect unless cond === true
+end
+
+def assert_false(cond)
+	raise cond.inspect unless cond === false
+end
+
+def run_test
+	v_empty = KernelConfigValue.new('')
+	v_nil = KernelConfigValue.new(nil)
+	v_yes = KernelConfigValue.new('y')
+	v_module = KernelConfigValue.new('m')
+	v_no = KernelConfigValue.new('n')
+	v_whatever = KernelConfigValue.new('whatever')
+
+	assert(v_empty.equivalent?(v_empty))
+	assert(v_empty.equivalent?(v_nil))
+	assert_false(v_empty.equivalent?(v_yes))
+	assert_false(v_empty.equivalent?(v_module))
+	assert_false(v_empty.equivalent?(v_no))
+	assert_false(v_empty.equivalent?(v_whatever))
+
+	assert(v_nil.equivalent?(v_empty))
+	assert(v_nil.equivalent?(v_nil))
+	assert_false(v_nil.equivalent?(v_yes))
+	assert_false(v_nil.equivalent?(v_module))
+	assert_false(v_nil.equivalent?(v_no))
+	assert_false(v_nil.equivalent?(v_whatever))
+
+	assert_false(v_yes.equivalent?(v_empty))
+	assert_false(v_yes.equivalent?(v_nil))
+	assert(v_yes.equivalent?(v_yes))
+	assert(v_yes.equivalent?(v_module))
+	assert_false(v_yes.equivalent?(v_no))
+	assert_false(v_yes.equivalent?(v_whatever))
+	
+end
+
+run_test
+main
